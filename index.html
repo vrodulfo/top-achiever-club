@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Top Achiever Club — Leaderboard</title>
+
+<!--
+  ════════════════════════════════════════════════════════════
+  SETUP INSTRUCTIONS (one-time, ~10 minutes)
+  ════════════════════════════════════════════════════════════
+
+  STEP 1 — Create the SharePoint List
+  ─────────────────────────────────────
+  1. Go to: https://apteanonline.sharepoint.com/teams/ProfessionalServices
+  2. Click "New" → "List" → "Blank list"
+  3. Name it exactly: Top Achiever Submissions
+  4. Add these columns (click "+ Add column"):
+       • LeaderName   → type: Single line of text
+       • Achievers    → type: Multiple lines of text
+       • ClubCount    → type: Number
+       • SubmittedAt  → type: Date and time
+  5. Click "Save"
+
+  STEP 2 — Register an Azure App (for login)
+  ─────────────────────────────────────────────
+  1. Go to: https://portal.azure.com → "Microsoft Entra ID" → "App registrations" → "New registration"
+  2. Name: "Top Achiever Club"
+  3. Supported account types: "Accounts in this organizational directory only"
+  4. Redirect URI: select "Single-page application (SPA)"
+       URI: the URL where you'll host this HTML file
+       (e.g. https://apteanonline.sharepoint.com/teams/ProfessionalServices/SitePages/TopAchieverClub.aspx
+        or wherever you upload this file)
+  5. Click "Register"
+  6. Copy the "Application (client) ID" — paste it as CLIENT_ID below
+  7. Copy the "Directory (tenant) ID" — paste it as TENANT_ID below
+  8. Under "API permissions" → "Add a permission" → "Microsoft Graph"
+       → "Delegated" → add: Sites.ReadWrite.All
+  9. Ask an admin to click "Grant admin consent"
+
+  STEP 3 — Paste your IDs below and upload the file to SharePoint
+  ════════════════════════════════════════════════════════════
+-->
+
+<script src="https://unpkg.com/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --gold: #E8A020; --gold-bg: #FDF3E0;
+    --silver: #8A9BAE; --silver-bg: #F0F4F8;
+    --bronze: #B87340; --bronze-bg: #F7EDE3;
+    --bg: #F5F7FA; --surface: #FFFFFF;
+    --border: #E2E6ED;
+    --text-primary: #1A1F2E; --text-secondary: #6B7489; --text-hint: #9BA3B5;
+    --accent: #3A5FD9; --accent-light: #EBF0FF;
+    --success-bg: #E8F7EF; --success: #1A7A46;
+    --danger-bg: #FDECEA; --danger: #C0392B;
+    --warn-bg: #FFF8E1; --warn: #856404;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text-primary); min-height: 100vh; }
+
+  /* Header */
+  .page-header { background: var(--text-primary); color: #fff; padding: 28px 32px 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .page-header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; line-height: 1.2; }
+  .page-header p { font-size: 13px; color: rgba(255,255,255,0.5); margin-top: 4px; }
+  .header-right { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+  .header-stat { text-align: right; }
+  .header-stat .num { font-size: 32px; font-weight: 700; line-height: 1; }
+  .header-stat .lbl { font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 3px; }
+
+  /* Auth bar */
+  .auth-bar { background: #2C6FED; border-top: 1px solid rgba(255,255,255,0.15); padding: 12px 32px; display: flex; align-items: center; gap: 10px; font-size: 14px; color: rgba(255,255,255,0.9); }
+  .auth-bar .user-name { color: #fff; font-weight: 600; }
+  .btn-auth { background: #fff; border: none; border-radius: 6px; color: #2C6FED; font-family: inherit; font-size: 13px; font-weight: 600; padding: 7px 16px; cursor: pointer; transition: opacity 0.15s; }
+  .btn-auth:hover { opacity: 0.9; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding: 28px 32px; max-width: 1100px; margin: 0 auto; }
+  @media (max-width: 780px) { .layout { grid-template-columns: 1fr; padding: 16px; gap: 16px; } .page-header { padding: 20px 16px 18px; flex-direction: column; align-items: flex-start; } .auth-bar { padding: 10px 16px; } }
+
+  /* Card */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; }
+  .card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-secondary); margin-bottom: 18px; display: flex; align-items: center; gap: 7px; }
+
+  /* Setup banner */
+  .setup-banner { background: var(--warn-bg); border: 1px solid #FFD54F; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 13px; color: var(--warn); line-height: 1.6; display: none; }
+  .setup-banner strong { display: block; margin-bottom: 4px; font-size: 14px; }
+  .setup-banner code { background: rgba(0,0,0,0.06); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+
+  /* Form */
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  select, input[type="text"] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; font-family: inherit; color: var(--text-primary); background: var(--bg); outline: none; transition: border-color 0.15s; }
+  select:focus, input[type="text"]:focus { border-color: var(--accent); background: #fff; }
+  select { cursor: pointer; }
+  .slots-info { background: var(--accent-light); border-radius: var(--radius); padding: 9px 13px; font-size: 13px; color: var(--accent); font-weight: 500; display: none; margin-bottom: 16px; }
+  .achievers-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .achiever-row { display: flex; gap: 7px; align-items: center; }
+  .achiever-row input { flex: 1; }
+  .achiever-num { width: 22px; height: 22px; border-radius: 50%; background: var(--bg); border: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .btn-remove { background: none; border: none; cursor: pointer; color: var(--text-hint); padding: 4px; display: flex; align-items: center; border-radius: 6px; transition: color 0.15s, background 0.15s; }
+  .btn-remove:hover { color: var(--danger); background: var(--danger-bg); }
+  .btn-add { display: none; align-items: center; gap: 6px; background: none; border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px 14px; font-size: 13px; font-family: inherit; color: var(--text-secondary); cursor: pointer; width: 100%; transition: border-color 0.15s, color 0.15s; margin-bottom: 18px; }
+  .btn-add:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-submit { width: 100%; background: var(--text-primary); color: #fff; border: none; border-radius: var(--radius); padding: 11px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; transition: opacity 0.15s; }
+  .btn-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-submit:not(:disabled):hover { opacity: 0.85; }
+  .toast { border-radius: var(--radius); padding: 10px 14px; font-size: 13px; font-weight: 500; display: none; margin-bottom: 16px; }
+  .toast.success { display: block; background: var(--success-bg); color: var(--success); }
+  .toast.error   { display: block; background: var(--danger-bg); color: var(--danger); }
+
+  /* Leaderboard */
+  .lb-controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .lb-count { font-size: 13px; color: var(--text-secondary); }
+  .btn-refresh { background: none; border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 12px; font-size: 12px; font-family: inherit; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 5px; transition: background 0.15s; }
+  .btn-refresh:hover { background: var(--bg); }
+  .entry-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 10px; position: relative; overflow: hidden; }
+  .entry-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+  .entry-card.rank-1 { border-color: #E8D49A; } .entry-card.rank-1::before { background: var(--gold); }
+  .entry-card.rank-2 { border-color: #C9D5E0; } .entry-card.rank-2::before { background: var(--silver); }
+  .entry-card.rank-3 { border-color: #D9C0A8; } .entry-card.rank-3::before { background: var(--bronze); }
+  .entry-card.rank-n::before { background: var(--border); }
+  .entry-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .rank-badge { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+  .rank-1 .rank-badge { background: var(--gold-bg); color: #8A5C00; }
+  .rank-2 .rank-badge { background: var(--silver-bg); color: #445566; }
+  .rank-3 .rank-badge { background: var(--bronze-bg); color: #6B3A1A; }
+  .rank-n .rank-badge { background: var(--bg); color: var(--text-secondary); font-size: 12px; }
+  .entry-name { font-size: 15px; font-weight: 600; flex: 1; }
+  .entry-meta { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
+  .entry-clubs { font-size: 12px; font-weight: 600; color: var(--text-secondary); background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; flex-shrink: 0; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--accent-light); color: var(--accent); border-radius: 20px; padding: 3px 10px; font-size: 12px; font-weight: 500; }
+  .empty { text-align: center; padding: 48px 16px; color: var(--text-hint); font-size: 14px; line-height: 1.6; }
+  .loading { text-align: center; padding: 32px; color: var(--text-secondary); font-size: 13px; }
+
+  /* Admin */
+  .admin-toggle { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .admin-toggle summary { font-size: 12px; color: var(--text-hint); cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; user-select: none; }
+  .admin-toggle summary:hover { color: var(--text-secondary); }
+  .admin-toggle summary::after { content: '›'; font-size: 16px; transition: transform 0.2s; }
+  .admin-toggle[open] summary::after { transform: rotate(90deg); }
+  .admin-body { padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .btn-admin { background: none; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; font-size: 13px; font-family: inherit; cursor: pointer; color: var(--text-secondary); text-align: left; transition: background 0.15s; }
+  .btn-admin:hover { background: var(--bg); border-color: var(--text-secondary); }
+  .btn-admin.danger { color: var(--danger); }
+  .btn-admin.danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border-radius: var(--radius-lg); padding: 24px; width: 100%; max-width: 480px; max-height: 80vh; overflow-y: auto; }
+  .modal h2 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .modal p { font-size: 13px; color: var(--text-secondary); margin-bottom: 18px; }
+  .leader-edit-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .leader-edit-row input[type="text"] { width: 100%; }
+  .leader-edit-row input[type="number"] { width: 64px; padding: 9px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; font-family: inherit; text-align: center; outline: none; }
+  .leader-edit-row input[type="number"]:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .btn-modal-save { flex: 1; background: var(--text-primary); color: #fff; border: none; border-radius: var(--radius); padding: 10px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
+  .btn-modal-save:hover { opacity: 0.85; }
+  .btn-modal-cancel { flex: 1; background: none; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; font-size: 14px; font-family: inherit; cursor: pointer; color: var(--text-secondary); }
+  .btn-modal-cancel:hover { background: var(--bg); }
+  .btn-add-leader { background: none; border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px; font-size: 13px; font-family: inherit; color: var(--text-secondary); cursor: pointer; width: 100%; margin-top: 4px; transition: border-color 0.15s; }
+  .btn-add-leader:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <div>
+    <h1>⭐ Top Achiever Club</h1>
+    <p>Leaders submit their nominees · Live leaderboard backed by SharePoint</p>
+  </div>
+  <div class="header-right">
+    <div class="header-stat">
+      <div class="num" id="total-clubs">23</div>
+      <div class="lbl">Total clubs</div>
+    </div>
+  </div>
+</header>
+
+<div class="auth-bar" id="auth-bar">
+  <span id="auth-status">Not signed in</span>
+  <button class="btn-auth" id="auth-btn" onclick="handleAuth()">Sign in with Microsoft</button>
+</div>
+
+<div class="layout">
+  <div>
+    <div class="card">
+      <div class="card-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+        Submit names
+      </div>
+
+      <div id="setup-banner" class="setup-banner">
+        <strong>⚙️ Setup required</strong>
+        Open this file in a text editor and paste your Azure App's
+        <code>CLIENT_ID</code> and <code>TENANT_ID</code> at the top of the script,
+        then follow the instructions in the comments to create the SharePoint list.
+      </div>
+
+      <div id="toast" class="toast"></div>
+
+      <div class="field">
+        <label>Your name</label>
+        <select id="leader-select" onchange="onLeaderChange()">
+          <option value="">— select your name —</option>
+        </select>
+      </div>
+
+      <div id="slots-info" class="slots-info"></div>
+
+      <div class="field">
+        <label>Top achiever names</label>
+        <div id="achievers-list" class="achievers-list"></div>
+        <button class="btn-add" id="btn-add" onclick="addAchieverField()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add another name
+        </button>
+      </div>
+
+      <button class="btn-submit" id="btn-submit" disabled onclick="submitNames()">Submit names</button>
+
+      <details class="admin-toggle">
+        <summary>Admin options</summary>
+        <div class="admin-body">
+          <button class="btn-admin" onclick="openEditModal()">✏️ Edit leader names &amp; club counts</button>
+          <button class="btn-admin danger" onclick="clearAll()">🗑 Clear all submissions</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="lb-controls">
+        <div class="card-title" style="margin-bottom:0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg>
+          Leaderboard
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="lb-count" id="lb-count"></span>
+          <button class="btn-refresh" onclick="loadLeaderboard()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div id="leaderboard"><div class="loading">Sign in to view the leaderboard</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Leaders Modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <h2>Edit leaders &amp; club counts</h2>
+    <p>Changes are saved locally in your browser and apply to new submissions.</p>
+    <div id="edit-rows"></div>
+    <button class="btn-add-leader" onclick="addEditRow()">+ Add leader</button>
+    <div class="modal-actions">
+      <button class="btn-modal-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-modal-save" onclick="saveLeaders()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════
+// PASTE YOUR IDs HERE
+// ════════════════════════════════════════════
+const CLIENT_ID = '5c4eab09-047a-4f1c-867a-52bc24c3565c';
+const TENANT_ID = '560ec2b0-df0c-4e8c-9848-a15718863bb6';
+// ════════════════════════════════════════════
+
+const SITE_URL    = 'https://apteanonline.sharepoint.com/teams/ProfessionalServices';
+const LIST_NAME   = 'Top Achiever Submissions';
+const GRAPH_BASE  = 'https://graph.microsoft.com/v1.0';
+const SCOPES      = ['Sites.ReadWrite.All'];
+
+// ── Default leaders ──
+const DEFAULT_LEADERS = [
+  { name: 'Jennifer Glassford', clubs: 7 },
+  { name: 'Jill Smith',         clubs: 5 },
+  { name: 'Pandu Vangal',       clubs: 4 },
+  { name: 'COE',                clubs: 3 },
+  { name: 'Shah Shahul',        clubs: 2 },
+  { name: 'Caroline Rua',       clubs: 1 },
+  { name: 'Extra wildcard',     clubs: 1 },
+];
+
+// ── State ──
+let leaders      = loadLeaders();
+let msalInstance = null;
+let account      = null;
+let siteId       = null;
+let listId       = null;
+let currentSlots = 0;
+
+// ── MSAL setup ──
+function initMsal() {
+  if (CLIENT_ID === 'YOUR_CLIENT_ID_HERE') {
+    document.getElementById('setup-banner').style.display = 'block';
+    return;
+  }
+  msalInstance = new msal.PublicClientApplication({
+    auth: {
+      clientId: CLIENT_ID,
+      authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+      redirectUri: window.location.href.split('?')[0].split('#')[0],
+    },
+    cache: { cacheLocation: 'sessionStorage' }
+  });
+  msalInstance.initialize().then(() => {
+    msalInstance.handleRedirectPromise().then(resp => {
+      if (resp) setAccount(resp.account);
+      else {
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) setAccount(accounts[0]);
+      }
+    });
+  });
+}
+
+async function handleAuth() {
+  if (account) {
+    msalInstance.logoutPopup();
+    account = null;
+    siteId = null; listId = null;
+    updateAuthBar();
+    document.getElementById('leaderboard').innerHTML = '<div class="loading">Sign in to view the leaderboard</div>';
+    return;
+  }
+  try {
+    const resp = await msalInstance.loginPopup({ scopes: SCOPES });
+    setAccount(resp.account);
+  } catch(e) { console.error(e); }
+}
+
+function setAccount(acct) {
+  account = acct;
+  updateAuthBar();
+  initSharePoint();
+}
+
+function updateAuthBar() {
+  const bar = document.getElementById('auth-bar');
+  const status = document.getElementById('auth-status');
+  const btn = document.getElementById('auth-btn');
+  if (account) {
+    status.innerHTML = `Signed in as <span class="user-name">${account.name || account.username}</span>`;
+    btn.textContent = 'Sign out';
+  } else {
+    status.textContent = 'Not signed in';
+    btn.textContent = 'Sign in with Microsoft';
+  }
+}
+
+// ── Get token ──
+async function getToken() {
+  if (!account) throw new Error('Not signed in');
+  try {
+    const resp = await msalInstance.acquireTokenSilent({ scopes: SCOPES, account });
+    return resp.accessToken;
+  } catch {
+    const resp = await msalInstance.acquireTokenPopup({ scopes: SCOPES });
+    return resp.accessToken;
+  }
+}
+
+// ── Graph helpers ──
+async function graphGet(url) {
+  const token = await getToken();
+  const resp = await fetch(GRAPH_BASE + url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly" }
+  });
+  if (!resp.ok) throw new Error(`Graph GET failed: ${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+
+async function graphPost(url, body) {
+  const token = await getToken();
+  const resp = await fetch(GRAPH_BASE + url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error(`Graph POST failed: ${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+
+async function graphPatch(url, body) {
+  const token = await getToken();
+  const resp = await fetch(GRAPH_BASE + url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error(`Graph PATCH failed: ${resp.status} ${await resp.text()}`);
+  return resp.status === 204 ? null : resp.json();
+}
+
+async function graphDelete(url) {
+  const token = await getToken();
+  const resp = await fetch(GRAPH_BASE + url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!resp.ok) throw new Error(`Graph DELETE failed: ${resp.status}`);
+}
+
+// ── SharePoint init — resolve siteId and listId ──
+async function initSharePoint() {
+  try {
+    const siteResp = await graphGet(`/sites/apteanonline.sharepoint.com:/teams/ProfessionalServices`);
+    siteId = siteResp.id;
+    const listsResp = await graphGet(`/sites/${siteId}/lists?$filter=displayName eq '${encodeURIComponent(LIST_NAME)}'`);
+    if (listsResp.value.length === 0) {
+      showToast(`SharePoint list "${LIST_NAME}" not found. Please create it first (see setup instructions).`, 'error');
+      return;
+    }
+    listId = listsResp.value[0].id;
+    loadLeaderboard();
+  } catch(e) {
+    showToast('Could not connect to SharePoint: ' + e.message, 'error');
+  }
+}
+
+// ── Leaderboard ──
+async function loadLeaderboard() {
+  const el = document.getElementById('leaderboard');
+  if (!listId) {
+    el.innerHTML = '<div class="loading">Sign in to view the leaderboard</div>';
+    return;
+  }
+  el.innerHTML = '<div class="loading">Loading submissions…</div>';
+  try {
+    const data = await graphGet(`/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`);
+    const items = data.value.map(i => i.fields).filter(f => f.LeaderName);
+    items.sort((a, b) => (b.ClubCount || 0) - (a.ClubCount || 0) || a.LeaderName.localeCompare(b.LeaderName));
+    const count = items.length;
+    document.getElementById('lb-count').textContent = count === 0 ? 'No submissions yet' : `${count} submission${count !== 1 ? 's' : ''}`;
+    if (count === 0) {
+      el.innerHTML = `<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 12px;opacity:0.3"><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg>No submissions yet.<br>Leaders can submit names using the form.</div>`;
+      return;
+    }
+    const medals = ['🥇','🥈','🥉'];
+    el.innerHTML = items.map((f, i) => {
+      const rank = i + 1;
+      const rankClass = rank <= 3 ? `rank-${rank}` : 'rank-n';
+      const badge = rank <= 3 ? medals[i] : `#${rank}`;
+      const achievers = f.Achievers ? f.Achievers.split('\n').filter(Boolean) : [];
+      const date = f.SubmittedAt ? new Date(f.SubmittedAt).toLocaleDateString('en-US', {month:'short',day:'numeric'}) : '—';
+      const pills = achievers.map(a => `<span class="pill">${a}</span>`).join('');
+      return `<div class="entry-card ${rankClass}">
+        <div class="entry-top">
+          <div class="rank-badge">${badge}</div>
+          <div style="flex:1;min-width:0">
+            <div class="entry-name">${f.LeaderName}</div>
+            <div class="entry-meta">${achievers.length} achiever${achievers.length !== 1 ? 's' : ''} · submitted ${date}</div>
+          </div>
+          <div class="entry-clubs">${f.ClubCount || '—'} clubs</div>
+        </div>
+        <div class="pills">${pills}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Could not load submissions.<br><small>${e.message}</small></div>`;
+  }
+}
+
+// ── Form ──
+function loadLeaders() {
+  try { const s = localStorage.getItem('tac_leaders'); return s ? JSON.parse(s) : DEFAULT_LEADERS; } catch { return DEFAULT_LEADERS; }
+}
+function saveLeadersToStorage(data) {
+  try { localStorage.setItem('tac_leaders', JSON.stringify(data)); } catch {}
+}
+
+function populateSelect() {
+  const sel = document.getElementById('leader-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— select your name —</option>';
+  leaders.forEach(l => {
+    const opt = document.createElement('option');
+    opt.value = l.name;
+    opt.textContent = `${l.name} (${l.clubs} club${l.clubs !== 1 ? 's' : ''})`;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
+}
+
+function updateTotalClubs() {
+  document.getElementById('total-clubs').textContent = leaders.reduce((s, l) => s + l.clubs, 0);
+}
+
+function onLeaderChange() {
+  const val = document.getElementById('leader-select').value;
+  const leader = leaders.find(l => l.name === val);
+  currentSlots = leader ? leader.clubs : 0;
+  const slotsEl = document.getElementById('slots-info');
+  const addBtn  = document.getElementById('btn-add');
+  document.getElementById('achievers-list').innerHTML = '';
+  if (leader) {
+    slotsEl.textContent = `You can submit up to ${currentSlots} achiever name${currentSlots !== 1 ? 's' : ''}.`;
+    slotsEl.style.display = 'block';
+    addBtn.style.display = 'flex';
+    addAchieverField();
+  } else {
+    slotsEl.style.display = 'none';
+    addBtn.style.display = 'none';
+  }
+  updateSubmitBtn();
+}
+
+function addAchieverField() {
+  const list  = document.getElementById('achievers-list');
+  const count = list.querySelectorAll('.achiever-row').length;
+  if (count >= currentSlots) return;
+  const row = document.createElement('div');
+  row.className = 'achiever-row';
+  row.innerHTML = `<div class="achiever-num">${count + 1}</div>
+    <input type="text" placeholder="Full name" oninput="updateSubmitBtn()" />
+    <button class="btn-remove" onclick="removeAchieverField(this)" aria-label="Remove">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>`;
+  list.appendChild(row);
+  document.getElementById('btn-add').style.display =
+    list.querySelectorAll('.achiever-row').length >= currentSlots ? 'none' : 'flex';
+  updateSubmitBtn();
+}
+
+function removeAchieverField(btn) {
+  btn.closest('.achiever-row').remove();
+  document.querySelectorAll('#achievers-list .achiever-num').forEach((el, i) => el.textContent = i + 1);
+  document.getElementById('btn-add').style.display = 'flex';
+  updateSubmitBtn();
+}
+
+function updateSubmitBtn() {
+  const names = getAchieverNames();
+  document.getElementById('btn-submit').disabled =
+    !account || !listId || !document.getElementById('leader-select').value || names.length === 0;
+}
+
+function getAchieverNames() {
+  return [...document.querySelectorAll('#achievers-list input')].map(i => i.value.trim()).filter(Boolean);
+}
+
+// ── Submit to SharePoint ──
+async function submitNames() {
+  const leader = document.getElementById('leader-select').value;
+  const names  = getAchieverNames();
+  if (!leader || names.length === 0 || !listId) return;
+
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  const leaderData = leaders.find(l => l.name === leader);
+  const clubCount  = leaderData ? leaderData.clubs : 0;
+
+  try {
+    // Check if this leader already has a submission → update it
+    const existing = await graphGet(
+      `/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`
+    );
+    const match = existing.value.find(i => i.fields && i.fields.LeaderName === leader);
+    if (match) {
+      const itemId = match.id;
+      await graphPatch(`/sites/${siteId}/lists/${listId}/items/${itemId}/fields`, {
+        Achievers:   names.join('\n'),
+        ClubCount:   clubCount,
+        SubmittedAt: new Date().toISOString(),
+      });
+    } else {
+      await graphPost(`/sites/${siteId}/lists/${listId}/items`, {
+        fields: {
+          Title:       leader,
+          LeaderName:  leader,
+          Achievers:   names.join('\n'),
+          ClubCount:   clubCount,
+          SubmittedAt: new Date().toISOString(),
+        }
+      });
+    }
+    showToast('Names submitted successfully!', 'success');
+    document.getElementById('leader-select').value = '';
+    document.getElementById('achievers-list').innerHTML = '';
+    document.getElementById('slots-info').style.display = 'none';
+    document.getElementById('btn-add').style.display = 'none';
+    currentSlots = 0;
+    loadLeaderboard();
+  } catch(e) {
+    showToast('Error submitting: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Submit names';
+    updateSubmitBtn();
+  }
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = 'toast', 5000);
+}
+
+// ── Clear all ──
+async function clearAll() {
+  if (!confirm('Delete ALL submissions from SharePoint? This cannot be undone.')) return;
+  if (!listId) return;
+  try {
+    const data = await graphGet(`/sites/${siteId}/lists/${listId}/items?$top=100`);
+    for (const item of data.value) {
+      await graphDelete(`/sites/${siteId}/lists/${listId}/items/${item.id}`);
+    }
+    showToast('All submissions cleared.', 'success');
+    loadLeaderboard();
+  } catch(e) { showToast('Error clearing: ' + e.message, 'error'); }
+}
+
+// ── Edit leaders modal ──
+function openEditModal() {
+  const container = document.getElementById('edit-rows');
+  container.innerHTML = '';
+  leaders.forEach(l => container.appendChild(makeEditRow(l.name, l.clubs)));
+  document.getElementById('edit-modal').classList.add('open');
+}
+function makeEditRow(name, clubs) {
+  const row = document.createElement('div');
+  row.className = 'leader-edit-row';
+  row.innerHTML = `<input type="text" value="${name}" placeholder="Leader name" />
+    <input type="number" value="${clubs}" min="0" max="99" />
+    <button class="btn-remove" onclick="this.closest('.leader-edit-row').remove()" aria-label="Remove">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>`;
+  return row;
+}
+function addEditRow() { document.getElementById('edit-rows').appendChild(makeEditRow('', 1)); }
+function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); }
+function saveLeaders() {
+  const rows = document.querySelectorAll('#edit-rows .leader-edit-row');
+  const newLeaders = [];
+  rows.forEach(row => {
+    const name  = row.querySelector('input[type="text"]').value.trim();
+    const clubs = parseInt(row.querySelector('input[type="number"]').value) || 0;
+    if (name) newLeaders.push({ name, clubs });
+  });
+  leaders = newLeaders;
+  saveLeadersToStorage(leaders);
+  populateSelect();
+  updateTotalClubs();
+  closeEditModal();
+}
+document.getElementById('edit-modal').addEventListener('click', function(e) { if (e.target === this) closeEditModal(); });
+
+// ── Init ──
+populateSelect();
+updateTotalClubs();
+initMsal();
+</script>
+</body>
+</html>

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Top Achiever Club — Live Board</title>
+<script src="https://unpkg.com/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --gold: #E8A020; --gold-bg: #FDF3E0;
+    --silver: #8A9BAE; --silver-bg: #F0F4F8;
+    --bronze: #B87340; --bronze-bg: #F7EDE3;
+    --bg: #F0F2F7; --surface: #FFFFFF;
+    --border: #E2E6ED;
+    --text-primary: #1A1F2E; --text-secondary: #6B7489; --text-hint: #9BA3B5;
+    --accent: #3A5FD9; --accent-light: #EBF0FF;
+    --radius: 10px; --radius-lg: 16px;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--text-primary);
+    color: #fff;
+    padding: 28px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .header-left h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.4px; }
+  .header-left p { font-size: 14px; color: rgba(255,255,255,0.45); margin-top: 5px; }
+  .header-right { display: flex; align-items: center; gap: 28px; flex-shrink: 0; }
+  .stat { text-align: right; }
+  .stat .num { font-size: 36px; font-weight: 700; line-height: 1; }
+  .stat .lbl { font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 3px; }
+
+  /* ── Status bar ── */
+  .status-bar {
+    background: #1E2640;
+    padding: 10px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: rgba(255,255,255,0.45);
+  }
+  .status-bar .live-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #4CD964;
+    font-weight: 500;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #4CD964;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .refresh-countdown { color: rgba(255,255,255,0.35); }
+
+  /* ── Grid ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+    padding: 28px 40px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 600px) { .grid { padding: 16px; gap: 12px; } .header { padding: 20px 16px; } .status-bar { padding: 8px 16px; } }
+
+  /* ── Entry card ── */
+  .entry-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .entry-card:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,0.07); }
+  .entry-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    border-radius: 16px 0 0 16px;
+  }
+  .entry-card.rank-1 { border-color: #E8D49A; } .entry-card.rank-1::before { background: var(--gold); }
+  .entry-card.rank-2 { border-color: #C9D5E0; } .entry-card.rank-2::before { background: var(--silver); }
+  .entry-card.rank-3 { border-color: #D9C0A8; } .entry-card.rank-3::before { background: var(--bronze); }
+  .entry-card.rank-n::before { background: var(--border); }
+
+  .entry-top {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .rank-badge {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .rank-1 .rank-badge { background: var(--gold-bg); color: #8A5C00; }
+  .rank-2 .rank-badge { background: var(--silver-bg); color: #445566; }
+  .rank-3 .rank-badge { background: var(--bronze-bg); color: #6B3A1A; }
+  .rank-n .rank-badge { background: var(--bg); color: var(--text-secondary); font-size: 14px; }
+
+  .entry-name { font-size: 17px; font-weight: 600; flex: 1; line-height: 1.2; }
+  .entry-meta { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+  .entry-clubs {
+    font-size: 12px; font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    flex-shrink: 0;
+  }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 7px; }
+  .pill {
+    background: var(--accent-light);
+    color: var(--accent);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  /* ── Pending card (leader hasn't submitted yet) ── */
+  .entry-card.pending { opacity: 0.45; }
+  .pending-label {
+    font-size: 12px;
+    color: var(--text-hint);
+    font-style: italic;
+    padding: 6px 0 2px;
+  }
+
+  /* ── States ── */
+  .full-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 16px;
+    text-align: center;
+    color: var(--text-hint);
+    gap: 12px;
+  }
+  .full-state svg { opacity: 0.25; }
+  .full-state p { font-size: 15px; line-height: 1.6; }
+  .full-state .sub { font-size: 13px; color: var(--text-hint); }
+
+  /* ── Progress bar ── */
+  .progress-wrap {
+    padding: 0 40px 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 600px) { .progress-wrap { padding: 0 16px 16px; } }
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 7px;
+  }
+  .progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #6B8EFF);
+    border-radius: 10px;
+    transition: width 0.6s ease;
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <h1>⭐ Top Achiever Club</h1>
+    <p>Live submission tracker · Professional Services</p>
+  </div>
+  <div class="header-right">
+    <div class="stat">
+      <div class="num" id="submitted-count">0</div>
+      <div class="lbl">Submitted</div>
+    </div>
+    <div class="stat">
+      <div class="num" id="total-leaders">7</div>
+      <div class="lbl">Leaders</div>
+    </div>
+    <div class="stat">
+      <div class="num">23</div>
+      <div class="lbl">Total clubs</div>
+    </div>
+  </div>
+</header>
+
+<div class="status-bar">
+  <span class="live-dot"><span class="dot"></span> Live</span>
+  <span class="refresh-countdown" id="countdown">Refreshing in 30s</span>
+</div>
+
+<div class="progress-wrap">
+  <div class="progress-label">
+    <span id="progress-text">Submission progress</span>
+    <span id="progress-pct">0%</span>
+  </div>
+  <div class="progress-bar">
+    <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+  </div>
+</div>
+
+<div id="board"></div>
+
+<script>
+const CLIENT_ID  = '5c4eab09-047a-4f1c-867a-52bc24c3565c';
+const TENANT_ID  = '560ec2b0-df0c-4e8c-9848-a15718863bb6';
+const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
+const SCOPES     = ['Sites.ReadWrite.All'];
+
+const LEADERS = [
+  { name: 'Jennifer Glassford', clubs: 7 },
+  { name: 'Jill Smith',         clubs: 5 },
+  { name: 'Pandu Vangal',       clubs: 4 },
+  { name: 'COE',                clubs: 3 },
+  { name: 'Shah Shahul',        clubs: 2 },
+  { name: 'Caroline Rua',       clubs: 1 },
+  { name: 'Extra wildcard',     clubs: 1 },
+];
+
+let msalInstance = null;
+let account      = null;
+let siteId       = null;
+let listId       = null;
+let countdown    = 30;
+let countdownTimer = null;
+
+// ── MSAL silent sign-in (no button, happens automatically) ──
+async function init() {
+  msalInstance = new msal.PublicClientApplication({
+    auth: {
+      clientId: CLIENT_ID,
+      authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+      redirectUri: window.location.href.split('?')[0].split('#')[0],
+    },
+    cache: { cacheLocation: 'sessionStorage' }
+  });
+  await msalInstance.initialize();
+  await msalInstance.handleRedirectPromise();
+
+  // Try silent sign-in first using any cached account
+  const accounts = msalInstance.getAllAccounts();
+  if (accounts.length > 0) {
+    account = accounts[0];
+  } else {
+    // No cached account — trigger login redirect silently
+    try {
+      await msalInstance.loginPopup({ scopes: SCOPES, prompt: 'none' });
+      account = msalInstance.getAllAccounts()[0];
+    } catch {
+      // If silent fails, show a login prompt
+      try {
+        const resp = await msalInstance.loginPopup({ scopes: SCOPES });
+        account = resp.account;
+      } catch(e) {
+        showError('Could not sign in automatically. Please refresh the page.');
+        return;
+      }
+    }
+  }
+  await connectSharePoint();
+  startCountdown();
+}
+
+async function getToken() {
+  try {
+    const r = await msalInstance.acquireTokenSilent({ scopes: SCOPES, account });
+    return r.accessToken;
+  } catch {
+    const r = await msalInstance.acquireTokenPopup({ scopes: SCOPES });
+    return r.accessToken;
+  }
+}
+
+async function graphGet(url) {
+  const token = await getToken();
+  const resp = await fetch(GRAPH_BASE + url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly'
+    }
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+
+async function connectSharePoint() {
+  try {
+    const site = await graphGet(`/sites/apteanonline.sharepoint.com:/teams/ProfessionalServices`);
+    siteId = site.id;
+    const lists = await graphGet(`/sites/${siteId}/lists?$filter=displayName eq 'Top Achiever Submissions'`);
+    if (!lists.value.length) { showError('SharePoint list not found.'); return; }
+    listId = lists.value[0].id;
+    loadBoard();
+  } catch(e) {
+    showError('Could not connect to SharePoint: ' + e.message);
+  }
+}
+
+async function loadBoard() {
+  if (!listId) return;
+  try {
+    const data = await graphGet(`/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`);
+    const submissions = {};
+    data.value.forEach(item => {
+      const f = item.fields;
+      if (f && f.LeaderName) submissions[f.LeaderName] = f;
+    });
+    renderBoard(submissions);
+  } catch(e) {
+    showError('Could not load submissions: ' + e.message);
+  }
+}
+
+function renderBoard(submissions) {
+  const board = document.getElementById('board');
+  const submittedCount = Object.keys(submissions).length;
+  const totalLeaders = LEADERS.length;
+  const pct = Math.round((submittedCount / totalLeaders) * 100);
+
+  // Update stats
+  document.getElementById('submitted-count').textContent = submittedCount;
+  document.getElementById('total-leaders').textContent = totalLeaders;
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-text').textContent =
+    `${submittedCount} of ${totalLeaders} leaders submitted`;
+
+  // Sort: submitted first (by club count desc), then pending
+  const submitted = LEADERS.filter(l => submissions[l.name]).sort((a,b) => b.clubs - a.clubs);
+  const pending   = LEADERS.filter(l => !submissions[l.name]);
+  const ordered   = [...submitted, ...pending];
+
+  if (submittedCount === 0) {
+    board.innerHTML = `<div class="full-state">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/>
+        <path d="M4 22h16"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/>
+      </svg>
+      <p>Waiting for submissions…<br><span class="sub">Leaders submit their nominees using the submission form.</span></p>
+    </div>`;
+    return;
+  }
+
+  const medals = ['🥇','🥈','🥉'];
+  let rank = 0;
+
+  board.innerHTML = `<div class="grid">${ordered.map(leader => {
+    const f = submissions[leader.name];
+    if (!f) {
+      // Pending card
+      return `<div class="entry-card rank-n pending">
+        <div class="entry-top">
+          <div class="rank-badge">–</div>
+          <div style="flex:1">
+            <div class="entry-name">${leader.name}</div>
+            <div class="entry-meta">${leader.clubs} club${leader.clubs !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="entry-clubs">${leader.clubs} clubs</div>
+        </div>
+        <p class="pending-label">Not yet submitted</p>
+      </div>`;
+    }
+
+    rank++;
+    const rankClass = rank <= 3 ? `rank-${rank}` : 'rank-n';
+    const badge = rank <= 3 ? medals[rank-1] : `#${rank}`;
+    const achievers = f.Achievers ? f.Achievers.split('\n').filter(Boolean) : [];
+    const date = f.Created ? new Date(f.Created).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
+
+    return `<div class="entry-card ${rankClass}">
+      <div class="entry-top">
+        <div class="rank-badge">${badge}</div>
+        <div style="flex:1;min-width:0">
+          <div class="entry-name">${leader.name}</div>
+          <div class="entry-meta">${achievers.length} achiever${achievers.length !== 1 ? 's' : ''}${date ? ' · ' + date : ''}</div>
+        </div>
+        <div class="entry-clubs">${leader.clubs} clubs</div>
+      </div>
+      <div class="pills">${achievers.map(a => `<span class="pill">${a}</span>`).join('')}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function startCountdown() {
+  clearInterval(countdownTimer);
+  countdown = 30;
+  countdownTimer = setInterval(() => {
+    countdown--;
+    document.getElementById('countdown').textContent = `Refreshing in ${countdown}s`;
+    if (countdown <= 0) {
+      countdown = 30;
+      loadBoard();
+    }
+  }, 1000);
+}
+
+function showError(msg) {
+  document.getElementById('board').innerHTML = `<div class="full-state"><p>${msg}</p></div>`;
+}
+
+init();
+</script>
+</body>
+</html>

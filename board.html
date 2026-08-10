@@ -253,19 +253,32 @@ const DEFAULT_LEADERS = [
   { name: 'Extra wildcard',     clubs: 1 },
 ];
 
-function loadLeaders() {
+async function loadLeadersFromSharePoint() {
+  if (!listId) return DEFAULT_LEADERS;
   try {
-    const s = localStorage.getItem("tac_leaders");
-    return s ? JSON.parse(s) : DEFAULT_LEADERS;
+    const data = await graphGet(`/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`);
+    const seen = {};
+    data.value.forEach(item => {
+      const f = item.fields;
+      if (f && f.LeaderName && !seen[f.LeaderName]) {
+        seen[f.LeaderName] = { name: f.LeaderName, clubs: f.ClubCount || 0 };
+      }
+    });
+    const fromSP = Object.values(seen);
+    const merged = [...DEFAULT_LEADERS];
+    fromSP.forEach(sp => {
+      const idx = merged.findIndex(d => d.name === sp.name);
+      if (idx >= 0) merged[idx] = sp; else merged.push(sp);
+    });
+    return merged.sort((a,b) => b.clubs - a.clubs || a.name.localeCompare(b.name));
   } catch { return DEFAULT_LEADERS; }
 }
-
-const LEADERS = loadLeaders();
 
 let msalInstance = null;
 let account      = null;
 let siteId       = null;
 let listId       = null;
+let LEADERS_LIVE = DEFAULT_LEADERS;
 let countdown    = 30;
 let countdownTimer = null;
 
@@ -336,6 +349,7 @@ async function connectSharePoint() {
     const lists = await graphGet(`/sites/${siteId}/lists?$filter=displayName eq 'Top Achiever Submissions'`);
     if (!lists.value.length) { showError('SharePoint list not found.'); return; }
     listId = lists.value[0].id;
+    LEADERS_LIVE = await loadLeadersFromSharePoint();
     loadBoard();
   } catch(e) {
     showError('Could not connect to SharePoint: ' + e.message);
@@ -346,6 +360,18 @@ async function loadBoard() {
   if (!listId) return;
   try {
     const data = await graphGet(`/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`);
+    // Refresh leader list from same data
+    const seen = {};
+    data.value.forEach(item => {
+      const f = item.fields;
+      if (f && f.LeaderName && !seen[f.LeaderName]) seen[f.LeaderName] = { name: f.LeaderName, clubs: f.ClubCount || 0 };
+    });
+    const fromSP = Object.values(seen);
+    if (fromSP.length > 0) {
+      const merged = [...DEFAULT_LEADERS];
+      fromSP.forEach(sp => { const idx = merged.findIndex(d => d.name === sp.name); if (idx >= 0) merged[idx] = sp; else merged.push(sp); });
+      LEADERS_LIVE = merged.sort((a,b) => b.clubs - a.clubs || a.name.localeCompare(b.name));
+    }
     const submissions = {};
     data.value.forEach(item => {
       const f = item.fields;
@@ -358,8 +384,7 @@ async function loadBoard() {
 }
 
 function renderBoard(submissions) {
-  // Always read fresh from localStorage so edits on submit page are reflected
-  const LEADERS = loadLeaders();
+  const LEADERS = LEADERS_LIVE;
   const board = document.getElementById('board');
   const submittedCount = Object.keys(submissions).length;
   const totalLeaders = LEADERS.length;

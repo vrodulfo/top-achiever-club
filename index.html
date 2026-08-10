@@ -423,6 +423,10 @@ async function initSharePoint() {
       return;
     }
     listId = listsResp.value[0].id;
+    // Load leaders from SharePoint then populate UI
+    leaders = await loadLeadersFromSharePoint();
+    populateSelect();
+    updateTotalClubs();
     loadLeaderboard();
   } catch(e) {
     showToast('Could not connect to SharePoint: ' + e.message, 'error');
@@ -473,11 +477,26 @@ async function loadLeaderboard() {
 }
 
 // ── Form ──
-function loadLeaders() {
-  try { const s = localStorage.getItem('tac_leaders'); return s ? JSON.parse(s) : DEFAULT_LEADERS; } catch { return DEFAULT_LEADERS; }
-}
-function saveLeadersToStorage(data) {
-  try { localStorage.setItem('tac_leaders', JSON.stringify(data)); } catch {}
+async function loadLeadersFromSharePoint() {
+  if (!listId) return DEFAULT_LEADERS;
+  try {
+    const data = await graphGet(`/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`);
+    const seen = {};
+    data.value.forEach(item => {
+      const f = item.fields;
+      if (f && f.LeaderName && !seen[f.LeaderName]) {
+        seen[f.LeaderName] = { name: f.LeaderName, clubs: f.ClubCount || 0 };
+      }
+    });
+    const fromSP = Object.values(seen);
+    // Merge with DEFAULT_LEADERS — SP wins for existing names, defaults fill gaps
+    const merged = [...DEFAULT_LEADERS];
+    fromSP.forEach(sp => {
+      const idx = merged.findIndex(d => d.name === sp.name);
+      if (idx >= 0) merged[idx] = sp; else merged.push(sp);
+    });
+    return merged.sort((a,b) => b.clubs - a.clubs || a.name.localeCompare(b.name));
+  } catch { return DEFAULT_LEADERS; }
 }
 
 function populateSelect() {
@@ -653,10 +672,22 @@ function saveLeaders() {
     if (name) newLeaders.push({ name, clubs });
   });
   leaders = newLeaders;
-  saveLeadersToStorage(leaders);
   populateSelect();
   updateTotalClubs();
   closeEditModal();
+  // Persist club counts back to SharePoint for any leader that has a submission row
+  if (listId) {
+    graphGet(`/sites/${siteId}/lists/${listId}/items?expand=fields&$top=100`).then(data => {
+      data.value.forEach(item => {
+        const f = item.fields;
+        if (!f || !f.LeaderName) return;
+        const updated = newLeaders.find(l => l.name === f.LeaderName);
+        if (updated && updated.clubs !== f.ClubCount) {
+          graphPatch(`/sites/${siteId}/lists/${listId}/items/${item.id}/fields`, { ClubCount: updated.clubs });
+        }
+      });
+    }).catch(() => {});
+  }
 }
 document.getElementById('edit-modal').addEventListener('click', function(e) { if (e.target === this) closeEditModal(); });
 

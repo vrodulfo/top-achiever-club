@@ -293,7 +293,7 @@ const DEFAULT_LEADERS = [
 ];
 
 // ── State ──
-let leaders      = loadLeaders();
+let leaders      = DEFAULT_LEADERS.slice();
 let msalInstance = null;
 let account      = null;
 let siteId       = null;

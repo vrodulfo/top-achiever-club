@@ -100,10 +100,9 @@
     width: 5px;
     border-radius: 16px 0 0 16px;
   }
-  .entry-card.rank-1 { border-color: #E8D49A; } .entry-card.rank-1::before { background: var(--gold); }
-  .entry-card.rank-2 { border-color: #C9D5E0; } .entry-card.rank-2::before { background: var(--silver); }
-  .entry-card.rank-3 { border-color: #D9C0A8; } .entry-card.rank-3::before { background: var(--bronze); }
-  .entry-card.rank-n::before { background: var(--border); }
+  .entry-card.submitted { border-color: #B8D4A8; }
+  .entry-card.submitted::before { background: #4CAF50; }
+  .entry-card.pending::before { background: var(--border); }
 
   .entry-top {
     display: flex;
@@ -118,10 +117,8 @@
     font-size: 18px; font-weight: 700;
     flex-shrink: 0;
   }
-  .rank-1 .rank-badge { background: var(--gold-bg); color: #8A5C00; }
-  .rank-2 .rank-badge { background: var(--silver-bg); color: #445566; }
-  .rank-3 .rank-badge { background: var(--bronze-bg); color: #6B3A1A; }
-  .rank-n .rank-badge { background: var(--bg); color: var(--text-secondary); font-size: 14px; }
+  .submitted .rank-badge { background: #E8F7EF; color: #1A7A46; font-size: 20px; }
+  .pending .rank-badge { background: var(--bg); color: var(--text-hint); font-size: 14px; }
 
   .entry-name { font-size: 17px; font-weight: 600; flex: 1; line-height: 1.2; }
   .entry-meta { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
@@ -414,14 +411,10 @@ function renderBoard(submissions) {
     return;
   }
 
-  const medals = ['🥇','🥈','🥉'];
-  let rank = 0;
-
   board.innerHTML = `<div class="grid">${ordered.map(leader => {
     const f = submissions[leader.name];
     if (!f) {
-      // Pending card
-      return `<div class="entry-card rank-n pending">
+      return `<div class="entry-card pending">
         <div class="entry-top">
           <div class="rank-badge">–</div>
           <div style="flex:1">
@@ -434,15 +427,12 @@ function renderBoard(submissions) {
       </div>`;
     }
 
-    rank++;
-    const rankClass = rank <= 3 ? `rank-${rank}` : 'rank-n';
-    const badge = rank <= 3 ? medals[rank-1] : `#${rank}`;
     const achievers = f.Achievers ? f.Achievers.split('\n').filter(Boolean) : [];
     const date = f.Created ? new Date(f.Created).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
 
-    return `<div class="entry-card ${rankClass}">
+    return `<div class="entry-card submitted">
       <div class="entry-top">
-        <div class="rank-badge">${badge}</div>
+        <div class="rank-badge">⭐</div>
         <div style="flex:1;min-width:0">
           <div class="entry-name">${leader.name}</div>
           <div class="entry-meta">${achievers.length} achiever${achievers.length !== 1 ? 's' : ''}${date ? ' · ' + date : ''}</div>
